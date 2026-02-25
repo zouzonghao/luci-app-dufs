@@ -1,0 +1,13 @@
+{
+	"admin/services/dufs": {
+		"title": "Dufs 文件服务",
+		"order": 90,
+		"action": {
+			"type": "view",
+			"path": "dufs"
+		},
+		"depends": {
+			"acl": [ "luci-app-dufs" ]
+		}
+	}
+}

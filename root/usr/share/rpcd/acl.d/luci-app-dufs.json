@@ -1,0 +1,17 @@
+{
+	"luci-app-dufs": {
+		"description": "允许 luci-app-dufs 读写 UCI 配置",
+		"read": {
+			"uci": [ "dufs" ],
+			"ubus": {
+				"service": [ "list" ]
+			}
+		},
+		"write": {
+			"uci": [ "dufs" ],
+			"ubus": {
+				"luci": [ "setInitAction" ]
+			}
+		}
+	}
+}
