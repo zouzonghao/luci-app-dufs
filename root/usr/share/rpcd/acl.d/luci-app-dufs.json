@@ -1,0 +1,11 @@
+{
+	"luci-app-dufs": {
+		"description": "Grant UCI access for luci-app-dufs",
+		"read": {
+			"uci": [ "dufs" ]
+		},
+		"write": {
+			"uci": [ "dufs" ]
+		}
+	}
+}
