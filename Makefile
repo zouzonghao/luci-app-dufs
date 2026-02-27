@@ -68,6 +68,12 @@ define Package/luci-app-dufs/postrm
 /etc/init.d/dufs stop 2>/dev/null || true
 /etc/init.d/dufs disable 2>/dev/null || true
 
+case "$$$$1" in
+	""|remove|purge)
+		rm -f /etc/config/dufs
+	;;
+esac
+
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
 exit 0

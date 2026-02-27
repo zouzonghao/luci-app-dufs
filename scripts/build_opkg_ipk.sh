@@ -166,6 +166,13 @@ echo "==> Stopping dufs service..."
 /etc/init.d/dufs stop 2>/dev/null || true
 /etc/init.d/dufs disable 2>/dev/null || true
 
+case "$1" in
+	""|remove|purge)
+		echo "==> Removing configuration..."
+		rm -f /etc/config/dufs
+	;;
+esac
+
 echo "==> Removing LuCI cache..."
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
