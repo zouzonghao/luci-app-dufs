@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-dufs
 PKG_VERSION:=0.45.0
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_LICENSE:=MIT
 PKG_MAINTAINER:=macm4
 
@@ -20,6 +20,7 @@ define Package/luci-app-dufs/postinst
 #!/bin/sh
 [ -n "$$$$IPKG_INSTROOT" ] && exit 0
 
+/etc/init.d/dufs enable >/dev/null 2>&1 || true
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
 /etc/init.d/rpcd restart >/dev/null 2>&1
@@ -34,7 +35,6 @@ define Package/luci-app-dufs/postrm
 /etc/init.d/dufs stop 2>/dev/null || true
 /etc/init.d/dufs disable 2>/dev/null || true
 
-rm -f /etc/config/dufs
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
 exit 0

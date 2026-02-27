@@ -25,8 +25,144 @@ function getMainSection() {
 	return sections && sections.length ? sections[0] : {};
 }
 
+function getMainSectionName() {
+	var cfg = getMainSection();
+	return cfg && cfg['.name'] ? cfg['.name'] : null;
+}
+
 function isFlagEnabled(value) {
 	return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function syncInitState(enabled) {
+	var actions = enabled ? ['enable', 'restart'] : ['disable', 'stop'];
+
+	return actions.reduce(function(promise, action) {
+		return promise.then(function() {
+			return L.resolveDefault(callInitAction('dufs', action), null);
+		});
+	}, Promise.resolve());
+}
+
+function exportConfigData() {
+	var cfg = getMainSection();
+	var data = {};
+
+	Object.keys(cfg || {}).forEach(function(key) {
+		if (key.charAt(0) === '.')
+			return;
+		data[key] = cfg[key];
+	});
+
+	return data;
+}
+
+function parseBackupText(text) {
+	var data = JSON.parse(text);
+
+	if (!data || typeof data !== 'object' || Array.isArray(data))
+		throw new Error(_('备份文件内容无效'));
+
+	/* 兼容之前的 {format,version,config} 结构 */
+	if (data.config && typeof data.config === 'object' && !Array.isArray(data.config))
+		return data.config;
+
+	return data;
+}
+
+function buildBackupFilename() {
+	var now = new Date();
+	var parts = [
+		now.getFullYear(),
+		('0' + (now.getMonth() + 1)).slice(-2),
+		('0' + now.getDate()).slice(-2),
+		'-',
+		('0' + now.getHours()).slice(-2),
+		('0' + now.getMinutes()).slice(-2),
+		('0' + now.getSeconds()).slice(-2)
+	];
+
+	return 'dufs-config-' + parts.join('') + '.json';
+}
+
+function downloadTextFile(filename, content) {
+	var blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+	var url = window.URL.createObjectURL(blob);
+	var link = E('a', {
+		href: url,
+		download: filename,
+		style: 'display:none'
+	});
+
+	document.body.appendChild(link);
+	link.click();
+	window.setTimeout(function() {
+		window.URL.revokeObjectURL(url);
+		if (link.parentNode)
+			link.parentNode.removeChild(link);
+	}, 0);
+}
+
+function readFileAsText(file) {
+	return new Promise(function(resolve, reject) {
+		var reader = new FileReader();
+
+		reader.onload = function() {
+			resolve(String(reader.result || ''));
+		};
+		reader.onerror = function() {
+			reject(new Error(_('无法读取所选文件')));
+		};
+		reader.readAsText(file);
+	});
+}
+
+function stageImportedConfig(importedConfig) {
+	var sectionName = getMainSectionName();
+	var cfg = getMainSection();
+
+	if (!sectionName)
+		return Promise.reject(new Error(_('未找到 dufs 配置节')));
+
+	if (typeof uci.unset === 'function') {
+		Object.keys(cfg || {}).forEach(function(key) {
+			if (key.charAt(0) === '.')
+				return;
+			uci.unset('dufs', sectionName, key);
+		});
+	}
+
+	Object.keys(importedConfig || {}).forEach(function(key) {
+		var value = importedConfig[key];
+		var listValue;
+
+		if (key.charAt(0) === '.')
+			return;
+		if (value === null || value === undefined)
+			return;
+		if (Array.isArray(value)) {
+			listValue = value.map(function(item) {
+				return String(item === null || item === undefined ? '' : item).trim();
+			}).filter(function(item) {
+				return item.length > 0;
+			});
+			if (listValue.length > 0)
+				uci.set('dufs', sectionName, key, listValue);
+			return;
+		}
+		if (typeof value === 'object')
+			return;
+		if (value === true)
+			value = '1';
+		else if (value === false)
+			value = '0';
+		else
+			value = String(value);
+		if (value !== '')
+			uci.set('dufs', sectionName, key, value);
+	});
+
+	return Promise.resolve(uci.save());
 }
 
 function getServiceStatus() {
@@ -261,9 +397,7 @@ return view.extend({
 	handleSaveApply: function(ev, mode) {
 		return Promise.resolve(this.handleSave(ev)).then(function() {
 			var cfg = getMainSection();
-			var action = isFlagEnabled(cfg.enabled) ? 'restart' : 'stop';
-
-			return L.resolveDefault(callInitAction('dufs', action), null);
+			return syncInitState(isFlagEnabled(cfg.enabled));
 		}).then(function() {
 			ui.changes.apply(mode == '0');
 		});
@@ -321,6 +455,91 @@ return view.extend({
 
 			return E('div', { class: 'cbi-section' }, [
 				E('p', { id: 'dufs_service_status' }, _('正在获取服务状态...'))
+			]);
+		};
+
+		s = m.section(form.TypedSection);
+		s.anonymous = true;
+		s.addremove = false;
+		s.render = function() {
+			var exportBtn;
+			var importBtn;
+			var fileInput;
+			var resultLine = E('p', { class: 'cbi-value-description' }, '');
+			var setResult = function(text, isError) {
+				resultLine.textContent = text || '';
+				resultLine.style.color = isError ? '#cf1322' : '#237804';
+			};
+			var setBusy = function(isBusy) {
+				exportBtn.disabled = isBusy;
+				importBtn.disabled = isBusy;
+			};
+
+			fileInput = E('input', {
+				type: 'file',
+				accept: '.json,application/json',
+				style: 'display:none'
+			});
+
+			exportBtn = E('button', {
+				class: 'btn cbi-button cbi-button-action',
+				style: 'margin-right:8px;',
+				click: function(ev) {
+					var payload;
+
+					ev.preventDefault();
+
+					try {
+						payload = JSON.stringify(exportConfigData(), null, 2) + '\n';
+						downloadTextFile(buildBackupFilename(), payload);
+						setResult(_('已导出 dufs 配置文件。'), false);
+					} catch (err) {
+						setResult(_('导出失败：') + (err && err.message ? err.message : _('未知错误')), true);
+					}
+				}
+			}, [ _('导出配置') ]);
+
+			importBtn = E('button', {
+				class: 'btn cbi-button cbi-button-action',
+				click: function(ev) {
+					ev.preventDefault();
+					fileInput.click();
+				}
+			}, [ _('导入配置') ]);
+
+			fileInput.addEventListener('change', function() {
+				var file = fileInput.files && fileInput.files[0];
+
+				if (!file)
+					return;
+
+				setBusy(true);
+				setResult(_('正在导入配置...'), false);
+
+				readFileAsText(file).then(function(content) {
+					return stageImportedConfig(parseBackupText(content));
+				}).then(function() {
+					setResult(_('导入成功，请点击“保存并应用”。'), false);
+					window.setTimeout(function() {
+						window.location.reload();
+					}, 300);
+				}, function(err) {
+					setResult(_('导入失败：') + (err && err.message ? err.message : _('未知错误')), true);
+				}).then(function() {
+					setBusy(false);
+					fileInput.value = '';
+				});
+			});
+
+			return E('div', { class: 'cbi-section' }, [
+				E('h3', {}, _('配置备份与恢复')),
+				E('p', { class: 'cbi-value-description' }, _('导出当前 dufs 配置到 JSON 文件，或导入并覆盖当前页面配置。')),
+				E('div', { class: 'cbi-value-field', style: 'margin-top:8px;margin-bottom:8px;' }, [
+					exportBtn,
+					importBtn,
+					fileInput
+				]),
+				resultLine
 			]);
 		};
 

@@ -10,12 +10,12 @@ Usage: $(basename "$0") [VERSION] [OUT_DIR]
 Build luci-app-dufs IPK package.
 
 Arguments:
-  VERSION   Package version (default: 0.45.0-6)
+  VERSION   Package version (default: 0.45.0-YYMMDD-HHMM, auto-generated)
   OUT_DIR   Output directory (default: ./dist)
 
 Example:
   $(basename "$0")
-  $(basename "$0") 0.45.0-6 ./output
+  $(basename "$0") 0.45.0-260227-1449 ./output
 EOF
 }
 
@@ -25,7 +25,13 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-VERSION="${1:-0.45.0-1}"
+BASE_VERSION="${BASE_VERSION:-0.45.0}"
+BUILD_STAMP="$(date '+%y%m%d-%H%M')"
+if [ -z "${1:-}" ] || [ "${1:-}" = "auto" ]; then
+    VERSION="${BASE_VERSION}-${BUILD_STAMP}"
+else
+    VERSION="$1"
+fi
 OUT_DIR="${2:-$ROOT_DIR/dist}"
 PKG_NAME="luci-app-dufs"
 PKG_ARCH="all"
@@ -55,7 +61,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 DATA_DIR="$WORK_DIR/data"
 CONTROL_DIR="$WORK_DIR/control"
 PKGROOT_DIR="$WORK_DIR/pkgroot"
-IPK_PATH="$OUT_DIR/${PKG_NAME}_${VERSION}_${PKG_ARCH}.ipk"
+IPK_PATH="$OUT_DIR/${PKG_NAME}_${VERSION}.ipk"
 
 mkdir -p "$OUT_DIR" "$DATA_DIR" "$CONTROL_DIR" "$PKGROOT_DIR"
 
@@ -107,6 +113,7 @@ cat > "$CONTROL_DIR/postinst" <<'EOF'
 #!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
 
+/etc/init.d/dufs enable >/dev/null 2>&1 || true
 echo "==> Refreshing LuCI cache..."
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
@@ -114,7 +121,6 @@ rm -rf /tmp/luci-modulecache/*
 /etc/init.d/uhttpd reload >/dev/null 2>&1 || /etc/init.d/uhttpd restart >/dev/null 2>&1
 
 echo "==> luci-app-dufs installed successfully"
-echo "==> Please enable and start the service from LuCI web interface"
 
 exit 0
 EOF
@@ -127,9 +133,6 @@ cat > "$CONTROL_DIR/prerm" <<'EOF'
 echo "==> Stopping dufs service..."
 /etc/init.d/dufs stop 2>/dev/null || true
 /etc/init.d/dufs disable 2>/dev/null || true
-
-echo "==> Removing configuration..."
-rm -f /etc/config/dufs
 
 echo "==> Removing LuCI cache..."
 rm -f /tmp/luci-indexcache
