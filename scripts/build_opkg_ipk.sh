@@ -10,12 +10,12 @@ Usage: $(basename "$0") [VERSION] [OUT_DIR]
 Build luci-app-dufs IPK package.
 
 Arguments:
-  VERSION   Package version (default: 0.45.0-YYMMDD-HHMM, auto-generated)
+  VERSION   Package version (default: YYMMDD-HHMM, auto-generated)
   OUT_DIR   Output directory (default: ./dist)
 
 Example:
   $(basename "$0")
-  $(basename "$0") 0.45.0-260227-1449 ./output
+  $(basename "$0") 260227-1449 ./output
 EOF
 }
 
@@ -25,10 +25,9 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-BASE_VERSION="${BASE_VERSION:-0.45.0}"
 BUILD_STAMP="$(date '+%y%m%d-%H%M')"
 if [ -z "${1:-}" ] || [ "${1:-}" = "auto" ]; then
-    VERSION="${BASE_VERSION}-${BUILD_STAMP}"
+    VERSION="${BUILD_STAMP}"
 else
     VERSION="$1"
 fi
@@ -71,7 +70,6 @@ cp -a "$VIEW_PATH" "$DATA_DIR/www/luci-static/resources/view/dufs.js"
 # Clean macOS metadata in staging only.
 find "$DATA_DIR" -name '.DS_Store' -type f -exec rm -f {} \; 2>/dev/null || true
 chmod 0755 "$DATA_DIR/etc/init.d/dufs" "$DATA_DIR/usr/bin/dufs"
-chmod 0644 "$DATA_DIR/etc/config/dufs"
 
 create_tar() {
     dir="$1"
@@ -105,15 +103,49 @@ Maintainer: macm4
 Description: Offline all-in-one package containing dufs binary and LuCI management UI.
 EOF
 
-cat > "$CONTROL_DIR/conffiles" <<'EOF'
-/etc/config/dufs
-EOF
-
 cat > "$CONTROL_DIR/postinst" <<'EOF'
 #!/bin/sh
 [ -n "$IPKG_INSTROOT" ] && exit 0
+case "$1" in
+	""|configure) ;;
+	*) exit 0 ;;
+esac
 
+if [ ! -f /etc/config/dufs ]; then
+cat > /etc/config/dufs <<'CFGEOF'
+config dufs 'main'
+	option enabled '0'
+	option serve_path '/mnt'
+	list bind '0.0.0.0'
+	option port '5000'
+	option path_prefix ''
+	option allow_all '0'
+	option allow_upload '0'
+	option allow_delete '0'
+	option allow_search '0'
+	option allow_symlink '0'
+	option allow_archive '0'
+	option allow_hash '0'
+	option enable_cors '0'
+	option render_index '0'
+	option render_try_index '0'
+	option render_spa '0'
+	option compress 'low'
+	option user 'root'
+	option group 'root'
+CFGEOF
+fi
+
+enabled="$(uci -q get dufs.main.enabled)"
+[ -n "$enabled" ] || enabled="$(uci -q get dufs.@dufs[0].enabled)"
+if [ "$enabled" = "1" ] || [ "$enabled" = "true" ]; then
 /etc/init.d/dufs enable >/dev/null 2>&1 || true
+/etc/init.d/dufs restart >/dev/null 2>&1 || /etc/init.d/dufs start >/dev/null 2>&1 || true
+else
+/etc/init.d/dufs stop >/dev/null 2>&1 || true
+/etc/init.d/dufs disable >/dev/null 2>&1 || true
+fi
+
 echo "==> Refreshing LuCI cache..."
 rm -f /tmp/luci-indexcache
 rm -rf /tmp/luci-modulecache/*
